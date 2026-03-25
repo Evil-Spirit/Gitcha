@@ -16,22 +16,17 @@ It uses a standard GitLab instance (gitlab.com or self-hosted) as its only backe
    - [Windows](#windows)
    - [Android](#android)
    - [iOS](#ios)
-5. [Deployment (Bundling Qt Runtime Libraries)](#deployment-bundling-qt-runtime-libraries)
-   - [Windows — windeployqt](#windows--windeployqt)
-   - [macOS — macdeployqt](#macos--macdeployqt)
-   - [Linux — linuxdeployqt](#linux--linuxdeployqt)
-   - [Android & iOS](#android--ios)
-6. [First-Time Setup](#first-time-setup)
-7. [Using the App](#using-the-app)
+5. [First-Time Setup](#first-time-setup)
+6. [Using the App](#using-the-app)
    - [Signing In](#signing-in)
    - [Adding a Contact](#adding-a-contact)
    - [Sending Messages](#sending-messages)
    - [Sharing Your Repo URL](#sharing-your-repo-url)
    - [Receiving Messages](#receiving-messages)
    - [Settings & Sign Out](#settings--sign-out)
-8. [Message File Format](#message-file-format)
-9. [Architecture](#architecture)
-10. [License](#license)
+7. [Message File Format](#message-file-format)
+8. [Architecture](#architecture)
+9. [License](#license)
 
 ---
 
@@ -192,106 +187,6 @@ cmake --open build-ios
 ```
 
 Select your device or simulator in Xcode and press **Run (▶)**.
-
----
-
-## Deployment (Bundling Qt Runtime Libraries)
-
-After building, you need to copy the Qt runtime libraries (`.dll` / `.so` / `.dylib` / frameworks) alongside the executable so it can run on machines that do not have Qt installed.  
-Qt ships dedicated tools for this purpose — they analyse the binary and copy only the required libraries.
-
-### Windows — `windeployqt`
-
-`windeployqt` is bundled with every Qt Windows installation and lives in `<Qt install>\<version>\<kit>\bin\`.
-
-```bat
-REM 1. Copy the executable to a clean deploy folder
-mkdir deploy
-copy build\Release\Gitcha.exe deploy\
-
-REM 2. Run windeployqt (adjust path to match your Qt installation)
-set QT_DIR=C:\Qt\6.x.x\msvc2019_64
-%QT_DIR%\bin\windeployqt.exe ^
-    --qmldir qml ^
-    --release ^
-    deploy\Gitcha.exe
-```
-
-`--qmldir qml` tells the tool to scan the project's QML directory and include all imported QML module plugins.
-
-After the command completes, `deploy\` contains `Gitcha.exe` plus all required Qt DLLs, QML plugins, and platform plugins.  
-You can zip and distribute the folder as-is, or wrap it with an installer (e.g. NSIS, Inno Setup, WiX).
-
----
-
-### macOS — `macdeployqt`
-
-`macdeployqt` is bundled with Qt for macOS and lives in `<Qt install>/<version>/macos/bin/`.
-
-```bash
-# 1. Build the app (produces build/Gitcha.app)
-cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(brew --prefix qt)
-cmake --build build --parallel
-
-# 2. Deploy Qt frameworks into the app bundle
-/path/to/Qt/6.x.x/macos/bin/macdeployqt \
-    build/Gitcha.app \
-    -qmldir=qml \
-    -dmg          # optional: also create a distributable .dmg image
-```
-
-The result is a self-contained `Gitcha.app` bundle (and optionally `Gitcha.dmg`) that can be copied to any macOS machine without a Qt installation.
-
-> **Tip:** If you installed Qt via Homebrew, run `$(brew --prefix qt)/bin/macdeployqt` instead of the path above.
-
----
-
-### Linux — `linuxdeployqt`
-
-Qt does not ship a first-party deploy tool for Linux; the community tool **linuxdeployqt** provides the same functionality.
-
-**Install linuxdeployqt:**
-
-```bash
-# Download the AppImage (works on any modern x86-64 Linux)
-wget -O linuxdeployqt \
-  https://github.com/probonopd/linuxdeployqt/releases/latest/download/linuxdeployqt-continuous-x86_64.AppImage
-chmod +x linuxdeployqt
-```
-
-**Deploy:**
-
-```bash
-# 1. Build
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-
-# 2. Stage the binary under an AppDir tree
-mkdir -p AppDir/usr/bin
-cp build/Gitcha AppDir/usr/bin/
-
-# 3. Run linuxdeployqt
-#    -qmldir points to the QML sources so QML plugins are included
-#    -appimage creates a portable single-file AppImage (optional)
-./linuxdeployqt AppDir/usr/bin/Gitcha \
-    -qmldir=qml \
-    -appimage
-```
-
-This produces:
-- `AppDir/` — a self-contained directory with the binary, Qt `.so` libraries, and QML plugins.
-- `Gitcha-x86_64.AppImage` — a portable single-file executable that runs on any modern x86-64 Linux without installing Qt.
-
-> **Alternative (system Qt):** If your target machines all run the same distribution, you can skip linuxdeployqt and instead list the Qt packages as run-time dependencies in a `.deb` or `.rpm` package.
-
----
-
-### Android & iOS
-
-No manual deployment step is required for mobile platforms.
-
-- **Android:** `cmake --build build-android --target apk` already bundles all Qt `.so` libraries and QML plugins inside the APK.  
-- **iOS:** Xcode bundles all Qt frameworks inside the `.app` when you archive for distribution (Product → Archive → Distribute App).
 
 ---
 
