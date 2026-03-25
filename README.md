@@ -66,6 +66,8 @@ Both sides always have a local copy of the full conversation history in their ow
 | **Dual-repo commit** | Each message is committed to both sides' repositories |
 | **No extra infrastructure** | No relay server, no database — only GitLab |
 | **Offline-readable history** | Open `messages.html` in any browser to read your chat history |
+| **Auto-generated repo names** | Repository names are derived automatically from usernames — no manual URL sharing needed |
+| **Auto-refresh** | New messages are fetched silently every 15 seconds while a chat is open |
 
 ---
 
@@ -226,14 +228,12 @@ Once authenticated, you will land on the **Chats** screen.
 
 ### Adding a Contact
 
-Both sides need to add each other. Here is the step-by-step for Alice adding Bob:
+Both sides need to add each other. The process is symmetric and requires only each user's GitLab username — no manual URL sharing is needed.
 
 #### Alice's side
 
 1. On the **Chats** screen, tap the **+** button (bottom-right).
-2. In the dialog that appears:
-   - **Remote user's GitLab username** — enter `bob` (Bob's exact GitLab username).
-   - **Remote user's repo URL** — leave blank for now (you'll fill it in after Bob shares his URL).
+2. In the dialog that appears, enter `bob` (Bob's exact GitLab username).
 3. Tap **OK**.
 
 Gitcha will automatically:
@@ -241,22 +241,16 @@ Gitcha will automatically:
 - Create a **private** repository called `chat-with-bob` on Alice's account
 - Grant Bob **Developer** access to that repository
 - Initialise it with an empty `messages.html` file
-
-#### Alice shares her repo URL with Bob
-
-4. Tap on **Bob** in the chat list to open the conversation.
-5. Tap the **🔗** (link) button in the top-right toolbar.
-6. Copy the displayed URL (e.g. `https://gitlab.com/alice/chat-with-bob`) and send it to Bob via any other channel (email, phone, etc.).
+- Derive the URL of Bob's corresponding repository automatically
 
 #### Bob's side
 
 Bob does the same steps in reverse:
 1. Tap **+** on his **Chats** screen.
 2. Enter `alice` as the username.
-3. Paste Alice's repo URL (`https://gitlab.com/alice/chat-with-bob`) into the **Remote user's repo URL** field.
-4. Tap **OK**.
+3. Tap **OK**.
 
-Bob's Gitcha will create `chat-with-alice` on his account, grant Alice access, and the two sides are now connected.
+Bob's Gitcha will create `chat-with-alice` on his account, grant Alice access, and the two sides are now connected — no out-of-band URL exchange required.
 
 > **Note:** Both users must be registered on the **same GitLab instance** (e.g. both on `gitlab.com`, or both on the same self-hosted server). Cross-instance messaging is not yet supported.
 
@@ -274,23 +268,17 @@ Messages appear immediately (optimistic update) and are committed to your GitLab
 
 ### Sharing Your Repo URL
 
-Your contact needs the URL of your `chat-with-<them>` repository to complete their setup.
+You can still share your local repository URL with your contact if needed (e.g. for debugging or non-standard setups).
 
 1. Open the chat with your contact.
 2. Tap the **🔗** button in the toolbar.
 3. A popup displays your repo URL — tap **Copy** to copy it to the clipboard.
-4. Share this URL with your contact out-of-band (email, SMS, etc.).
 
 ---
 
 ### Receiving Messages
 
-Gitcha does not push notifications. To check for new messages:
-
-1. Open the conversation with the contact.
-2. Tap the **↻ (refresh)** button in the toolbar.
-
-The client fetches the latest `messages.html` from your GitLab repository and re-renders the conversation.
+New messages are fetched automatically every 15 seconds while a conversation is open — no manual refresh is required. You can also tap the **↻ (refresh)** button in the toolbar at any time to fetch immediately.
 
 > **Tip:** Your contact commits their messages into your repository (they have Developer access), so new messages are always available in your own GitLab repo without needing their server to be reachable.
 
@@ -420,7 +408,7 @@ GitLabClient::commitFile()   ──►  GitLab repository (your account)
 | "Login failed" | Check that your PAT has the `api` scope and has not expired |
 | "User not found" | Confirm the exact GitLab username (case-sensitive on some instances) |
 | "Failed to add contact" | Make sure the remote user exists on **your** GitLab instance |
-| Messages not appearing | Tap **↻** to refresh; check that the contact has committed to your repo |
+| Messages not appearing | Wait for the 15-second auto-refresh or tap **↻** to refresh immediately; check that the contact has committed to your repo |
 | "Send failed" | Check your internet connection; verify the PAT is still valid |
 
 ---

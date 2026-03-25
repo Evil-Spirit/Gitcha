@@ -59,11 +59,19 @@ public:
 
     QList<Contact> contacts() const { return m_contacts; }
 
-    /** Persists the contact list to local QSettings. */
-    void saveContacts();
-
-    /** Loads the contact list from local QSettings. */
-    void loadContacts();
+    /**
+     * Populates the contact list from GitLab by listing owned repositories
+     * whose names start with "chat-with-".  This replaces the old
+     * QSettings-based persistence so that two clients on the same machine
+     * with different accounts never share each other's contact lists.
+     *
+     * @param currentUser  the logged-in user's GitLab username
+     * @param onDone       called when the list is ready
+     * @param onErr        called with an error string on failure
+     */
+    void loadContactsFromGitLab(const QString &currentUser,
+                                 std::function<void()>        onDone,
+                                 std::function<void(QString)> onErr);
 
     // ── Adding a new contact ──────────────────────────────────────────────────
 
@@ -91,6 +99,14 @@ public:
      * @p remoteUsername.
      */
     static QString repoNameForContact(const QString &remoteUsername);
+
+    /**
+     * Returns the project path of the repo that @p contactUsername owns for
+     * chatting with @p localUsername, e.g. "bob/chat-with-alice".
+     * This is the repository Alice commits to when she sends Bob a message.
+     */
+    static QString remoteRepoPathForContact(const QString &contactUsername,
+                                             const QString &localUsername);
 
     /**
      * Returns the file path within the repository where messages are stored.

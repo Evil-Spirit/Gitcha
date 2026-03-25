@@ -13,15 +13,13 @@ Dialog {
     // ── Reset on open ─────────────────────────────────────────────────────────
     onOpened: {
         usernameField.text = ""
-        repoUrlField.text  = ""
         usernameField.forceActiveFocus()
     }
 
     onAccepted: {
-        const uname   = usernameField.text.trim()
-        const repoUrl = repoUrlField.text.trim()
+        const uname = usernameField.text.trim()
         if (uname.length === 0) return
-        app.addContact(uname, repoUrl)
+        app.addContact(uname, "")
     }
 
     // ── Form ──────────────────────────────────────────────────────────────────
@@ -42,19 +40,7 @@ Dialog {
         }
 
         Label {
-            text: "Remote user's repo URL (optional):"
-            font.pixelSize: 12
-            color: "#757575"
-        }
-        TextField {
-            id: repoUrlField
-            Layout.fillWidth: true
-            placeholderText: "https://gitlab.com/bob/chat-with-alice"
-            inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase
-        }
-
-        Label {
-            text: "Ask your contact to share their repo URL from the chat screen (🔗 button)."
+            text: "Both users must be on the same GitLab instance. The repository will be created and linked automatically."
             wrapMode: Text.Wrap
             Layout.fillWidth: true
             font.pixelSize: 11
