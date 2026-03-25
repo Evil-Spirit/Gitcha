@@ -16,8 +16,8 @@ Page {
 
             ColumnLayout {
                 Layout.fillWidth: true
+                Layout.leftMargin: 8
                 spacing: 0
-                leftPadding: 8
                 Label {
                     text: "Gitcha"
                     font.pixelSize: 18
