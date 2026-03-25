@@ -8,7 +8,7 @@ Page {
 
     // ── Toolbar ───────────────────────────────────────────────────────────────
     header: ToolBar {
-        Material.background: Material.Teal
+        Material.background: Material.DeepPurple
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 4
@@ -84,7 +84,7 @@ Page {
                     Label {
                         text: localRepo || "No local repo"
                         font.pixelSize: 11
-                        color: "#9e9e9e"
+                        color: "#9575CD"
                         elide: Text.ElideRight
                         Layout.fillWidth: true
                     }
@@ -100,7 +100,7 @@ Page {
             visible: contactModel.count === 0
             text: "No contacts yet.\nTap + to add someone."
             horizontalAlignment: Text.AlignHCenter
-            color: "#9e9e9e"
+            color: "#9575CD"
             font.pixelSize: 14
         }
     }
@@ -116,7 +116,7 @@ Page {
         icon.height: 24
         text: "+"
         font.pixelSize: 24
-        Material.background: Material.Teal
+        Material.background: Material.DeepPurple
         Material.foreground: "white"
         onClicked: addDialog.open()
     }

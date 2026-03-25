@@ -9,9 +9,9 @@ ApplicationWindow {
     height: 700
     title: "Gitcha"
 
-    Material.theme: Material.Light
-    Material.accent: Material.Teal
-    Material.primary: Material.Teal
+    Material.theme: Material.Dark
+    Material.accent: Material.DeepPurple
+    Material.primary: Material.DeepPurple
 
     // ── Page stack ────────────────────────────────────────────────────────────
     StackView {
@@ -68,7 +68,7 @@ ApplicationWindow {
         closePolicy: Popup.NoAutoClose
 
         background: Rectangle {
-            color: "#323232"
+            color: "#2D1B69"
             radius: 4
         }
 
