@@ -3,6 +3,8 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QIcon>
+#include <QTimer>
+#include <algorithm>
 
 #include "gitlabclient.h"
 #include "contactmanager.h"
@@ -30,6 +32,9 @@ class AppController : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
 
 public:
+    // Polling interval in milliseconds (15 seconds)
+    static constexpr int kPollIntervalMs = 15'000;
+
     AppController(GitLabClient   *gitlab,
                   ContactManager *contacts,
                   ContactModel   *contactModel,
@@ -46,6 +51,11 @@ public:
         connect(m_contacts, &ContactManager::contactAdded, this, [this](const Contact &c) {
             m_contactModel->appendContact(c);
         });
+
+        m_pollTimer = new QTimer(this);
+        m_pollTimer->setInterval(kPollIntervalMs);
+        connect(m_pollTimer, &QTimer::timeout,
+                this, [this]() { doRefreshMessages(/*silent=*/true); });
     }
 
     bool    authenticated()    const { return m_authenticated; }
@@ -68,8 +78,12 @@ public:
         if (m_activeChatIndex == idx) return;
         m_activeChatIndex = idx;
         emit activeChatIndexChanged();
-        if (idx >= 0)
+        if (idx >= 0) {
             refreshMessages();
+            m_pollTimer->start();
+        } else {
+            m_pollTimer->stop();
+        }
     }
 
     // ── QML-invokable methods ─────────────────────────────────────────────────
@@ -96,10 +110,18 @@ public:
                     m_settings->setRememberMe(true);
                 }
 
-                m_contacts->loadContacts();
-                m_contactModel->setContacts(m_contacts->contacts());
-                setLoading(false);
-                setStatus(QStringLiteral("Logged in as %1").arg(uname));
+                setStatus(QStringLiteral("Loading contacts…"));
+                m_contacts->loadContactsFromGitLab(uname,
+                    [this, uname]() {
+                        m_contactModel->setContacts(m_contacts->contacts());
+                        setLoading(false);
+                        setStatus(QStringLiteral("Logged in as %1").arg(uname));
+                    },
+                    [this, uname](QString err) {
+                        m_contactModel->setContacts({});
+                        setLoading(false);
+                        setStatus(QStringLiteral("Logged in as %1 (contacts: %2)").arg(uname, err));
+                    });
             },
             [this](QString err) {
                 setLoading(false);
@@ -109,6 +131,7 @@ public:
 
     Q_INVOKABLE void logout()
     {
+        m_pollTimer->stop();
         m_authenticated   = false;
         m_currentUser.clear();
         m_activeChatIndex = -1;
@@ -124,9 +147,18 @@ public:
     Q_INVOKABLE void addContact(const QString &remoteUsername,
                                 const QString &remoteRepoUrl)
     {
+        // Auto-derive the remote repo URL when not supplied.
+        // The convention is that the remote user names their repo
+        // "chat-with-<localUser>" on the same GitLab instance.
+        QString resolvedUrl = remoteRepoUrl.trimmed();
+        if (resolvedUrl.isEmpty()) {
+            resolvedUrl = m_gitlab->serverUrl() + QLatin1Char('/') +
+                          ContactManager::remoteRepoPathForContact(remoteUsername, m_currentUser);
+        }
+
         setStatus(QStringLiteral("Adding contact…"));
         setLoading(true);
-        m_contacts->addContact(remoteUsername, remoteRepoUrl,
+        m_contacts->addContact(remoteUsername, resolvedUrl,
             [this](Contact c) {
                 setLoading(false);
                 setStatus(QStringLiteral("Contact %1 added").arg(c.username));
@@ -156,67 +188,49 @@ public:
 
         setSending(true);
 
-        // Fetch current file content then append and commit
+        const QString commitMsg = QStringLiteral("[msg] %1: %2")
+                                    .arg(m_currentUser, text.left(60));
+
+        // Write only to the local repo (current user owns it; the contact has Developer
+        // access there so they can read it via the dual-repo refresh below).
         m_gitlab->getFileContent(contact.localRepoPath,
             ContactManager::messagesFilePath(),
             QStringLiteral("main"),
-            [this, contact, text, now](QByteArray existing) {
+            [this, contact, text, now, commitMsg](QByteArray existing) {
                 QByteArray updated = MessageStore::appendMessage(
                     existing, m_currentUser, text, now);
-                QString commitMsg = QStringLiteral("[msg] %1: %2")
-                                    .arg(m_currentUser,
-                                         text.left(60));
                 m_gitlab->commitFile(contact.localRepoPath,
                     ContactManager::messagesFilePath(),
-                    updated,
-                    commitMsg,
-                    QStringLiteral("main"),
+                    updated, commitMsg, QStringLiteral("main"),
                     [this]() {
                         setSending(false);
                         setStatus(QStringLiteral("Message sent"));
                     },
-                    [this](QString err) {
+                    [this](QString e) {
                         setSending(false);
-                        setStatus(QStringLiteral("Send failed: ") + err);
+                        setStatus(QStringLiteral("Send failed: ") + e);
                     });
             },
-            [this, contact, text, now](QString /*err*/) {
-                // File may not exist yet; commit with empty base
+            [this, contact, text, now, commitMsg](QString) {
                 QByteArray updated = MessageStore::appendMessage(
                     {}, m_currentUser, text, now);
-                QString commitMsg = QStringLiteral("[msg] %1: %2")
-                                    .arg(m_currentUser, text.left(60));
                 m_gitlab->commitFile(contact.localRepoPath,
                     ContactManager::messagesFilePath(),
-                    updated,
-                    commitMsg,
-                    QStringLiteral("main"),
-                    [this]() { setSending(false); setStatus(QStringLiteral("Message sent")); },
-                    [this](QString e) { setSending(false); setStatus(QStringLiteral("Send failed: ") + e); });
+                    updated, commitMsg, QStringLiteral("main"),
+                    [this]() {
+                        setSending(false);
+                        setStatus(QStringLiteral("Message sent"));
+                    },
+                    [this](QString e) {
+                        setSending(false);
+                        setStatus(QStringLiteral("Send failed: ") + e);
+                    });
             });
     }
 
     Q_INVOKABLE void refreshMessages()
     {
-        if (m_activeChatIndex < 0)
-            return;
-
-        const Contact contact = m_contacts->contacts().at(m_activeChatIndex);
-        setLoading(true);
-
-        m_gitlab->getFileContent(contact.localRepoPath,
-            ContactManager::messagesFilePath(),
-            QStringLiteral("main"),
-            [this](QByteArray data) {
-                auto msgs = MessageStore::parseMessages(data, m_currentUser);
-                m_messageModel->setMessages(msgs);
-                setLoading(false);
-                setStatus({});
-            },
-            [this](QString err) {
-                setLoading(false);
-                setStatus(QStringLiteral("Refresh failed: ") + err);
-            });
+        doRefreshMessages(/*silent=*/false);
     }
 
     Q_INVOKABLE QString localRepoUrlForActiveChat() const
@@ -239,6 +253,82 @@ signals:
     void statusMessageChanged();
 
 private:
+    // ── Refresh implementation ────────────────────────────────────────────────
+    // When silent=true the loading indicator is suppressed; used by the poll timer.
+    void doRefreshMessages(bool silent)
+    {
+        if (m_activeChatIndex < 0)
+            return;
+
+        const Contact contact = m_contacts->contacts().at(m_activeChatIndex);
+        // The contact's own repo where they write their messages to us.
+        // e.g. for Alice reading Bob: "bob/chat-with-alice"
+        const QString remoteRepoPath = ContactManager::remoteRepoPathForContact(
+            contact.username, m_currentUser);
+
+        if (!silent) setLoading(true);
+
+        // Helper: combine, deduplicate and sort the two message lists, then
+        // push to the model and clear the loading state.
+        auto finalize = [this, silent](QList<Message> mine, QList<Message> theirs) {
+            m_messageModel->setMessages(mergeMessages(mine, theirs));
+            if (!silent) {
+                setLoading(false);
+                setStatus({});
+            }
+        };
+
+        // Step 1: read the current user's own messages (their own repo).
+        m_gitlab->getFileContent(contact.localRepoPath,
+            ContactManager::messagesFilePath(),
+            QStringLiteral("main"),
+            [this, remoteRepoPath, finalize](QByteArray myData) {
+                QList<Message> mine = MessageStore::parseMessages(myData, m_currentUser);
+                // Step 2a: read the contact's messages.
+                m_gitlab->getFileContent(remoteRepoPath,
+                    ContactManager::messagesFilePath(),
+                    QStringLiteral("main"),
+                    [this, mine, finalize](QByteArray theirData) {
+                        finalize(mine, MessageStore::parseMessages(theirData, m_currentUser));
+                    },
+                    [mine, finalize](QString) {
+                        // Contact's repo not accessible yet — show only our messages.
+                        finalize(mine, {});
+                    });
+            },
+            [this, remoteRepoPath, finalize, silent](QString localErr) {
+                // Step 2b: our repo unreadable — try the contact's repo alone.
+                m_gitlab->getFileContent(remoteRepoPath,
+                    ContactManager::messagesFilePath(),
+                    QStringLiteral("main"),
+                    [this, finalize](QByteArray theirData) {
+                        finalize({}, MessageStore::parseMessages(theirData, m_currentUser));
+                    },
+                    [this, silent, localErr](QString) {
+                        if (!silent) {
+                            setLoading(false);
+                            setStatus(QStringLiteral("Refresh failed: ") + localErr);
+                        }
+                    });
+            });
+    }
+
+    // Merge two message lists: deduplicate by id and sort chronologically.
+    static QList<Message> mergeMessages(QList<Message> a, QList<Message> b)
+    {
+        QHash<QString, Message> byId;
+        for (const Message &m : a)
+            byId.insert(m.id, m);
+        for (const Message &m : b)
+            if (!byId.contains(m.id))
+                byId.insert(m.id, m);
+        QList<Message> merged = byId.values();
+        std::sort(merged.begin(), merged.end(), [](const Message &x, const Message &y) {
+            return x.timestamp < y.timestamp;
+        });
+        return merged;
+    }
+
     void setStatus(const QString &s) {
         if (m_statusMessage == s) return;
         m_statusMessage = s;
@@ -260,6 +350,7 @@ private:
     ContactModel    *m_contactModel{nullptr};
     MessageModel    *m_messageModel{nullptr};
     SettingsManager *m_settings{nullptr};
+    QTimer          *m_pollTimer{nullptr};
 
     bool    m_authenticated{false};
     QString m_currentUser;
