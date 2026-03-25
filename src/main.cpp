@@ -4,6 +4,7 @@
 #include <QQuickStyle>
 #include <QIcon>
 #include <QTimer>
+#include <algorithm>
 
 #include "gitlabclient.h"
 #include "contactmanager.h"
@@ -187,78 +188,42 @@ public:
 
         setSending(true);
 
-        // The remote user's repo is where we write the message so they can read it.
-        // Format: "<contactUsername>/chat-with-<localUser>", e.g. "bob/chat-with-alice"
-        const QString remoteRepoPath = ContactManager::remoteRepoPathForContact(
-            contact.username, m_currentUser);
         const QString commitMsg = QStringLiteral("[msg] %1: %2")
                                     .arg(m_currentUser, text.left(60));
 
-        // After the remote commit succeeds, also append the same message to the
-        // local repo so that the sender's own message feed stays in sync.
-        auto syncToLocal = [this, contact, text, now, commitMsg]() {
-            m_gitlab->getFileContent(contact.localRepoPath,
-                ContactManager::messagesFilePath(),
-                QStringLiteral("main"),
-                [this, contact, text, now, commitMsg](QByteArray existing) {
-                    QByteArray updated = MessageStore::appendMessage(
-                        existing, m_currentUser, text, now);
-                    m_gitlab->commitFile(contact.localRepoPath,
-                        ContactManager::messagesFilePath(),
-                        updated, commitMsg, QStringLiteral("main"),
-                        [this]() {
-                            setSending(false);
-                            setStatus(QStringLiteral("Message sent"));
-                        },
-                        [this](QString e) {
-                            setSending(false);
-                            setStatus(QStringLiteral("Send failed (sync): ") + e);
-                        });
-                },
-                [this, contact, text, now, commitMsg](QString) {
-                    QByteArray updated = MessageStore::appendMessage(
-                        {}, m_currentUser, text, now);
-                    m_gitlab->commitFile(contact.localRepoPath,
-                        ContactManager::messagesFilePath(),
-                        updated, commitMsg, QStringLiteral("main"),
-                        [this]() {
-                            setSending(false);
-                            setStatus(QStringLiteral("Message sent"));
-                        },
-                        [this](QString e) {
-                            setSending(false);
-                            setStatus(QStringLiteral("Send failed (sync): ") + e);
-                        });
-                });
-        };
-
-        // Step 1: commit message to the remote user's repository
-        m_gitlab->getFileContent(remoteRepoPath,
+        // Write only to the local repo (current user owns it; the contact has Developer
+        // access there so they can read it via the dual-repo refresh below).
+        m_gitlab->getFileContent(contact.localRepoPath,
             ContactManager::messagesFilePath(),
             QStringLiteral("main"),
-            [this, remoteRepoPath, text, now, commitMsg, syncToLocal](QByteArray existing) {
+            [this, contact, text, now, commitMsg](QByteArray existing) {
                 QByteArray updated = MessageStore::appendMessage(
                     existing, m_currentUser, text, now);
-                m_gitlab->commitFile(remoteRepoPath,
+                m_gitlab->commitFile(contact.localRepoPath,
                     ContactManager::messagesFilePath(),
                     updated, commitMsg, QStringLiteral("main"),
-                    [syncToLocal]() { syncToLocal(); },
-                    [this](QString err) {
+                    [this]() {
                         setSending(false);
-                        setStatus(QStringLiteral("Send failed: ") + err);
+                        setStatus(QStringLiteral("Message sent"));
+                    },
+                    [this](QString e) {
+                        setSending(false);
+                        setStatus(QStringLiteral("Send failed: ") + e);
                     });
             },
-            [this, remoteRepoPath, text, now, commitMsg, syncToLocal](QString) {
-                // messages.html may not exist yet in remote repo
+            [this, contact, text, now, commitMsg](QString) {
                 QByteArray updated = MessageStore::appendMessage(
                     {}, m_currentUser, text, now);
-                m_gitlab->commitFile(remoteRepoPath,
+                m_gitlab->commitFile(contact.localRepoPath,
                     ContactManager::messagesFilePath(),
                     updated, commitMsg, QStringLiteral("main"),
-                    [syncToLocal]() { syncToLocal(); },
-                    [this](QString err) {
+                    [this]() {
                         setSending(false);
-                        setStatus(QStringLiteral("Send failed: ") + err);
+                        setStatus(QStringLiteral("Message sent"));
+                    },
+                    [this](QString e) {
+                        setSending(false);
+                        setStatus(QStringLiteral("Send failed: ") + e);
                     });
             });
     }
@@ -296,25 +261,72 @@ private:
             return;
 
         const Contact contact = m_contacts->contacts().at(m_activeChatIndex);
+        // The contact's own repo where they write their messages to us.
+        // e.g. for Alice reading Bob: "bob/chat-with-alice"
+        const QString remoteRepoPath = ContactManager::remoteRepoPathForContact(
+            contact.username, m_currentUser);
+
         if (!silent) setLoading(true);
 
+        // Helper: combine, deduplicate and sort the two message lists, then
+        // push to the model and clear the loading state.
+        auto finalize = [this, silent](QList<Message> mine, QList<Message> theirs) {
+            m_messageModel->setMessages(mergeMessages(mine, theirs));
+            if (!silent) {
+                setLoading(false);
+                setStatus({});
+            }
+        };
+
+        // Step 1: read the current user's own messages (their own repo).
         m_gitlab->getFileContent(contact.localRepoPath,
             ContactManager::messagesFilePath(),
             QStringLiteral("main"),
-            [this, silent](QByteArray data) {
-                auto msgs = MessageStore::parseMessages(data, m_currentUser);
-                m_messageModel->setMessages(msgs);
-                if (!silent) {
-                    setLoading(false);
-                    setStatus({});
-                }
+            [this, remoteRepoPath, finalize](QByteArray myData) {
+                QList<Message> mine = MessageStore::parseMessages(myData, m_currentUser);
+                // Step 2a: read the contact's messages.
+                m_gitlab->getFileContent(remoteRepoPath,
+                    ContactManager::messagesFilePath(),
+                    QStringLiteral("main"),
+                    [this, mine, finalize](QByteArray theirData) {
+                        finalize(mine, MessageStore::parseMessages(theirData, m_currentUser));
+                    },
+                    [mine, finalize](QString) {
+                        // Contact's repo not accessible yet — show only our messages.
+                        finalize(mine, {});
+                    });
             },
-            [this, silent](QString err) {
-                if (!silent) {
-                    setLoading(false);
-                    setStatus(QStringLiteral("Refresh failed: ") + err);
-                }
+            [this, remoteRepoPath, finalize, silent](QString localErr) {
+                // Step 2b: our repo unreadable — try the contact's repo alone.
+                m_gitlab->getFileContent(remoteRepoPath,
+                    ContactManager::messagesFilePath(),
+                    QStringLiteral("main"),
+                    [this, finalize](QByteArray theirData) {
+                        finalize({}, MessageStore::parseMessages(theirData, m_currentUser));
+                    },
+                    [this, silent, localErr](QString) {
+                        if (!silent) {
+                            setLoading(false);
+                            setStatus(QStringLiteral("Refresh failed: ") + localErr);
+                        }
+                    });
             });
+    }
+
+    // Merge two message lists: deduplicate by id and sort chronologically.
+    static QList<Message> mergeMessages(QList<Message> a, QList<Message> b)
+    {
+        QHash<QString, Message> byId;
+        for (const Message &m : a)
+            byId.insert(m.id, m);
+        for (const Message &m : b)
+            if (!byId.contains(m.id))
+                byId.insert(m.id, m);
+        QList<Message> merged = byId.values();
+        std::sort(merged.begin(), merged.end(), [](const Message &x, const Message &y) {
+            return x.timestamp < y.timestamp;
+        });
+        return merged;
     }
 
     void setStatus(const QString &s) {
