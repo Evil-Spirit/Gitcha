@@ -3,6 +3,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QIcon>
+#include <QTimer>
 
 #include "gitlabclient.h"
 #include "contactmanager.h"
@@ -30,6 +31,9 @@ class AppController : public QObject
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
 
 public:
+    // Polling interval in milliseconds (15 seconds)
+    static constexpr int kPollIntervalMs = 15'000;
+
     AppController(GitLabClient   *gitlab,
                   ContactManager *contacts,
                   ContactModel   *contactModel,
@@ -46,6 +50,11 @@ public:
         connect(m_contacts, &ContactManager::contactAdded, this, [this](const Contact &c) {
             m_contactModel->appendContact(c);
         });
+
+        m_pollTimer = new QTimer(this);
+        m_pollTimer->setInterval(kPollIntervalMs);
+        connect(m_pollTimer, &QTimer::timeout,
+                this, [this]() { doRefreshMessages(/*silent=*/true); });
     }
 
     bool    authenticated()    const { return m_authenticated; }
@@ -68,8 +77,12 @@ public:
         if (m_activeChatIndex == idx) return;
         m_activeChatIndex = idx;
         emit activeChatIndexChanged();
-        if (idx >= 0)
+        if (idx >= 0) {
             refreshMessages();
+            m_pollTimer->start();
+        } else {
+            m_pollTimer->stop();
+        }
     }
 
     // ── QML-invokable methods ─────────────────────────────────────────────────
@@ -109,6 +122,7 @@ public:
 
     Q_INVOKABLE void logout()
     {
+        m_pollTimer->stop();
         m_authenticated   = false;
         m_currentUser.clear();
         m_activeChatIndex = -1;
@@ -124,9 +138,22 @@ public:
     Q_INVOKABLE void addContact(const QString &remoteUsername,
                                 const QString &remoteRepoUrl)
     {
+        // Auto-derive the remote repo URL when not supplied.
+        // The convention is that the remote user names their repo
+        // "chat-with-<localUser>" on the same GitLab instance.
+        QString resolvedUrl = remoteRepoUrl.trimmed();
+        if (resolvedUrl.isEmpty()) {
+            // This is the name the remote user is expected to give their repo.
+            const QString expectedRemoteRepoName =
+                ContactManager::repoNameForContact(m_currentUser);
+            resolvedUrl = m_gitlab->serverUrl() + QLatin1Char('/') +
+                          remoteUsername.toLower() + QLatin1Char('/') +
+                          expectedRemoteRepoName;
+        }
+
         setStatus(QStringLiteral("Adding contact…"));
         setLoading(true);
-        m_contacts->addContact(remoteUsername, remoteRepoUrl,
+        m_contacts->addContact(remoteUsername, resolvedUrl,
             [this](Contact c) {
                 setLoading(false);
                 setStatus(QStringLiteral("Contact %1 added").arg(c.username));
@@ -198,25 +225,7 @@ public:
 
     Q_INVOKABLE void refreshMessages()
     {
-        if (m_activeChatIndex < 0)
-            return;
-
-        const Contact contact = m_contacts->contacts().at(m_activeChatIndex);
-        setLoading(true);
-
-        m_gitlab->getFileContent(contact.localRepoPath,
-            ContactManager::messagesFilePath(),
-            QStringLiteral("main"),
-            [this](QByteArray data) {
-                auto msgs = MessageStore::parseMessages(data, m_currentUser);
-                m_messageModel->setMessages(msgs);
-                setLoading(false);
-                setStatus({});
-            },
-            [this](QString err) {
-                setLoading(false);
-                setStatus(QStringLiteral("Refresh failed: ") + err);
-            });
+        doRefreshMessages(/*silent=*/false);
     }
 
     Q_INVOKABLE QString localRepoUrlForActiveChat() const
@@ -239,6 +248,35 @@ signals:
     void statusMessageChanged();
 
 private:
+    // ── Refresh implementation ────────────────────────────────────────────────
+    // When silent=true the loading indicator is suppressed; used by the poll timer.
+    void doRefreshMessages(bool silent)
+    {
+        if (m_activeChatIndex < 0)
+            return;
+
+        const Contact contact = m_contacts->contacts().at(m_activeChatIndex);
+        if (!silent) setLoading(true);
+
+        m_gitlab->getFileContent(contact.localRepoPath,
+            ContactManager::messagesFilePath(),
+            QStringLiteral("main"),
+            [this, silent](QByteArray data) {
+                auto msgs = MessageStore::parseMessages(data, m_currentUser);
+                m_messageModel->setMessages(msgs);
+                if (!silent) {
+                    setLoading(false);
+                    setStatus({});
+                }
+            },
+            [this, silent](QString err) {
+                if (!silent) {
+                    setLoading(false);
+                    setStatus(QStringLiteral("Refresh failed: ") + err);
+                }
+            });
+    }
+
     void setStatus(const QString &s) {
         if (m_statusMessage == s) return;
         m_statusMessage = s;
@@ -260,6 +298,7 @@ private:
     ContactModel    *m_contactModel{nullptr};
     MessageModel    *m_messageModel{nullptr};
     SettingsManager *m_settings{nullptr};
+    QTimer          *m_pollTimer{nullptr};
 
     bool    m_authenticated{false};
     QString m_currentUser;
