@@ -47,10 +47,10 @@ chat-with-bob/ (private repo)         chat-with-alice/ (private repo)
 **Message flow:**
 
 1. Alice writes a message → it is appended to `messages.html` in her `chat-with-bob` repo and committed via the GitLab API.
-2. Because Bob has Developer access to Alice's repo, Alice's client also commits the same message into Bob's `chat-with-alice` repo.
-3. Bob's client polls his own repo to read new messages.
+2. When Bob refreshes (every 15 seconds or manually), his client reads **both** `bob/chat-with-alice` (his own messages) and `alice/chat-with-bob` (Alice's messages), merges them by unique id, and renders the combined history.
+3. Because Bob has Developer access to Alice's `chat-with-bob` repo, and Alice has Developer access to Bob's `chat-with-alice` repo, each side can read the other's messages directly — no relay server required.
 
-Both sides always have a local copy of the full conversation history in their own GitLab repository.
+Each user writes only to their own repository; the full conversation is assembled on the fly by merging both repos on every refresh.
 
 ---
 
@@ -63,7 +63,7 @@ Both sides always have a local copy of the full conversation history in their ow
 | **HTML message storage** | Every conversation is a single `messages.html` file — readable in any browser, supports links, markup, and references to git-repo files |
 | **GitLab as backend** | Uses only the GitLab REST API v4 (personal-access token auth) |
 | **Per-pair repositories** | Each conversation gets a dedicated private repository on the local user's GitLab account |
-| **Dual-repo commit** | Each message is committed to both sides' repositories |
+| **Single-write, dual-read** | Each user writes only to their own repository; on refresh, messages from both repos are merged by id and sorted chronologically |
 | **No extra infrastructure** | No relay server, no database — only GitLab |
 | **Offline-readable history** | Open `messages.html` in any browser to read your chat history |
 | **Auto-generated repo names** | Repository names are derived automatically from usernames — no manual URL sharing needed |
@@ -280,7 +280,7 @@ You can still share your local repository URL with your contact if needed (e.g. 
 
 New messages are fetched automatically every 15 seconds while a conversation is open — no manual refresh is required. You can also tap the **↻ (refresh)** button in the toolbar at any time to fetch immediately.
 
-> **Tip:** Your contact commits their messages into your repository (they have Developer access), so new messages are always available in your own GitLab repo without needing their server to be reachable.
+> **Tip:** On each refresh, your Gitcha client reads messages from **both** your own repository and your contact's repository, then merges and deduplicates them by id. Both repositories are private — only you and your contact have access.
 
 ---
 
@@ -391,12 +391,19 @@ AppController::sendMessage()
        │  append new <article> block (MessageStore)
        │  commit updated file via GitLab API
        ▼
-GitLabClient::commitFile()   ──►  GitLab repository (your account)
-                                        │
-                                        │  (contact has Developer access)
-                                        ▼
-                                Contact's GitLab repo
-                                contact's Gitcha polls and reads
+GitLabClient::commitFile()   ──►  your GitLab repo (e.g. alice/chat-with-bob)
+
+Poll timer (15 s) / manual refresh
+       │
+       ▼
+AppController::doRefreshMessages()
+       │  reads your own repo  (alice/chat-with-bob  — your messages)
+       │  reads contact's repo (bob/chat-with-alice  — their messages)
+       │  merges by id, sorts chronologically
+       ▼
+MessageModel  ──►  QML ListView
+                   (you have Developer access to the contact's repo;
+                    the contact has Developer access to yours)
 ```
 
 ---
@@ -408,7 +415,7 @@ GitLabClient::commitFile()   ──►  GitLab repository (your account)
 | "Login failed" | Check that your PAT has the `api` scope and has not expired |
 | "User not found" | Confirm the exact GitLab username (case-sensitive on some instances) |
 | "Failed to add contact" | Make sure the remote user exists on **your** GitLab instance |
-| Messages not appearing | Wait for the 15-second auto-refresh or tap **↻** to refresh immediately; check that the contact has committed to your repo |
+| Messages not appearing | Wait for the 15-second auto-refresh or tap **↻** to refresh immediately; check that the contact has committed to their own repository and that you have Developer access to it |
 | "Send failed" | Check your internet connection; verify the PAT is still valid |
 
 ---
