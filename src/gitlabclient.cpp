@@ -271,6 +271,27 @@ void GitLabClient::getFileCommits(const QString &projectPath,
         onErr);
 }
 
+// ── Project listing ──────────────────────────────────────────────────────────
+
+void GitLabClient::listProjects(const QString &search,
+                                 std::function<void(QJsonArray)> onOk,
+                                 std::function<void(QString)>    onErr)
+{
+    QString ep = QStringLiteral("/projects?owned=true&per_page=100");
+    if (!search.isEmpty())
+        ep += QStringLiteral("&search=") + QString::fromUtf8(QUrl::toPercentEncoding(search));
+
+    QNetworkRequest req = buildRequest(ep);
+    QNetworkReply *reply = m_nam.get(req);
+
+    handleReply(reply,
+        [onOk](QByteArray data) {
+            auto doc = QJsonDocument::fromJson(data);
+            onOk(doc.isArray() ? doc.array() : QJsonArray{});
+        },
+        onErr);
+}
+
 // ── User lookup ───────────────────────────────────────────────────────────────
 
 void GitLabClient::findUser(const QString &username,

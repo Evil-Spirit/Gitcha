@@ -128,6 +128,20 @@ public:
                         std::function<void(QJsonArray)> onOk,
                         std::function<void(QString)>    onErr);
 
+    // ── Project listing ───────────────────────────────────────────────────────
+
+    /**
+     * Lists projects owned by the authenticated user, optionally filtered by
+     * a search string against the project name.
+     *
+     * @param search  name filter (empty = no filter)
+     * @param onOk    called with a JSON array of project objects
+     * @param onErr   called with an error string on failure
+     */
+    void listProjects(const QString &search,
+                      std::function<void(QJsonArray)> onOk,
+                      std::function<void(QString)>    onErr);
+
     // ── User lookup ───────────────────────────────────────────────────────────
 
     /**

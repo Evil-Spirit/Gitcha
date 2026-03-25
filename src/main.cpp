@@ -109,10 +109,18 @@ public:
                     m_settings->setRememberMe(true);
                 }
 
-                m_contacts->loadContacts();
-                m_contactModel->setContacts(m_contacts->contacts());
-                setLoading(false);
-                setStatus(QStringLiteral("Logged in as %1").arg(uname));
+                setStatus(QStringLiteral("Loading contacts…"));
+                m_contacts->loadContactsFromGitLab(uname,
+                    [this, uname]() {
+                        m_contactModel->setContacts(m_contacts->contacts());
+                        setLoading(false);
+                        setStatus(QStringLiteral("Logged in as %1").arg(uname));
+                    },
+                    [this, uname](QString err) {
+                        m_contactModel->setContacts({});
+                        setLoading(false);
+                        setStatus(QStringLiteral("Logged in as %1 (contacts: %2)").arg(uname, err));
+                    });
             },
             [this](QString err) {
                 setLoading(false);
@@ -143,12 +151,8 @@ public:
         // "chat-with-<localUser>" on the same GitLab instance.
         QString resolvedUrl = remoteRepoUrl.trimmed();
         if (resolvedUrl.isEmpty()) {
-            // This is the name the remote user is expected to give their repo.
-            const QString expectedRemoteRepoName =
-                ContactManager::repoNameForContact(m_currentUser);
             resolvedUrl = m_gitlab->serverUrl() + QLatin1Char('/') +
-                          remoteUsername.toLower() + QLatin1Char('/') +
-                          expectedRemoteRepoName;
+                          ContactManager::remoteRepoPathForContact(remoteUsername, m_currentUser);
         }
 
         setStatus(QStringLiteral("Adding contact…"));
@@ -183,43 +187,79 @@ public:
 
         setSending(true);
 
-        // Fetch current file content then append and commit
-        m_gitlab->getFileContent(contact.localRepoPath,
+        // The remote user's repo is where we write the message so they can read it.
+        // Format: "<contactUsername>/chat-with-<localUser>", e.g. "bob/chat-with-alice"
+        const QString remoteRepoPath = ContactManager::remoteRepoPathForContact(
+            contact.username, m_currentUser);
+        const QString commitMsg = QStringLiteral("[msg] %1: %2")
+                                    .arg(m_currentUser, text.left(60));
+
+        // After the remote commit succeeds, also append the same message to the
+        // local repo so that the sender's own message feed stays in sync.
+        auto syncToLocal = [this, contact, text, now, commitMsg]() {
+            m_gitlab->getFileContent(contact.localRepoPath,
+                ContactManager::messagesFilePath(),
+                QStringLiteral("main"),
+                [this, contact, text, now, commitMsg](QByteArray existing) {
+                    QByteArray updated = MessageStore::appendMessage(
+                        existing, m_currentUser, text, now);
+                    m_gitlab->commitFile(contact.localRepoPath,
+                        ContactManager::messagesFilePath(),
+                        updated, commitMsg, QStringLiteral("main"),
+                        [this]() {
+                            setSending(false);
+                            setStatus(QStringLiteral("Message sent"));
+                        },
+                        [this](QString e) {
+                            setSending(false);
+                            setStatus(QStringLiteral("Send failed (sync): ") + e);
+                        });
+                },
+                [this, contact, text, now, commitMsg](QString) {
+                    QByteArray updated = MessageStore::appendMessage(
+                        {}, m_currentUser, text, now);
+                    m_gitlab->commitFile(contact.localRepoPath,
+                        ContactManager::messagesFilePath(),
+                        updated, commitMsg, QStringLiteral("main"),
+                        [this]() {
+                            setSending(false);
+                            setStatus(QStringLiteral("Message sent"));
+                        },
+                        [this](QString e) {
+                            setSending(false);
+                            setStatus(QStringLiteral("Send failed (sync): ") + e);
+                        });
+                });
+        };
+
+        // Step 1: commit message to the remote user's repository
+        m_gitlab->getFileContent(remoteRepoPath,
             ContactManager::messagesFilePath(),
             QStringLiteral("main"),
-            [this, contact, text, now](QByteArray existing) {
+            [this, remoteRepoPath, text, now, commitMsg, syncToLocal](QByteArray existing) {
                 QByteArray updated = MessageStore::appendMessage(
                     existing, m_currentUser, text, now);
-                QString commitMsg = QStringLiteral("[msg] %1: %2")
-                                    .arg(m_currentUser,
-                                         text.left(60));
-                m_gitlab->commitFile(contact.localRepoPath,
+                m_gitlab->commitFile(remoteRepoPath,
                     ContactManager::messagesFilePath(),
-                    updated,
-                    commitMsg,
-                    QStringLiteral("main"),
-                    [this]() {
-                        setSending(false);
-                        setStatus(QStringLiteral("Message sent"));
-                    },
+                    updated, commitMsg, QStringLiteral("main"),
+                    [syncToLocal]() { syncToLocal(); },
                     [this](QString err) {
                         setSending(false);
                         setStatus(QStringLiteral("Send failed: ") + err);
                     });
             },
-            [this, contact, text, now](QString /*err*/) {
-                // File may not exist yet; commit with empty base
+            [this, remoteRepoPath, text, now, commitMsg, syncToLocal](QString) {
+                // messages.html may not exist yet in remote repo
                 QByteArray updated = MessageStore::appendMessage(
                     {}, m_currentUser, text, now);
-                QString commitMsg = QStringLiteral("[msg] %1: %2")
-                                    .arg(m_currentUser, text.left(60));
-                m_gitlab->commitFile(contact.localRepoPath,
+                m_gitlab->commitFile(remoteRepoPath,
                     ContactManager::messagesFilePath(),
-                    updated,
-                    commitMsg,
-                    QStringLiteral("main"),
-                    [this]() { setSending(false); setStatus(QStringLiteral("Message sent")); },
-                    [this](QString e) { setSending(false); setStatus(QStringLiteral("Send failed: ") + e); });
+                    updated, commitMsg, QStringLiteral("main"),
+                    [syncToLocal]() { syncToLocal(); },
+                    [this](QString err) {
+                        setSending(false);
+                        setStatus(QStringLiteral("Send failed: ") + err);
+                    });
             });
     }
 

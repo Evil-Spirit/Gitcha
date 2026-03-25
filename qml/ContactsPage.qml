@@ -14,13 +14,24 @@ Page {
             anchors.leftMargin: 4
             anchors.rightMargin: 4
 
-            Label {
-                text: "Gitcha"
-                font.pixelSize: 18
-                font.bold: true
-                color: "white"
+            ColumnLayout {
                 Layout.fillWidth: true
+                spacing: 0
                 leftPadding: 8
+                Label {
+                    text: "Gitcha"
+                    font.pixelSize: 18
+                    font.bold: true
+                    color: "white"
+                    Layout.fillWidth: true
+                }
+                Label {
+                    text: app.currentUser ? "@" + app.currentUser : ""
+                    font.pixelSize: 11
+                    color: "#ccffffff"
+                    Layout.fillWidth: true
+                    visible: app.currentUser.length > 0
+                }
             }
 
             ToolButton {

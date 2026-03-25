@@ -2,7 +2,6 @@
 #include "gitlabclient.h"
 #include "messagestore.h"
 
-#include <QSettings>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -45,31 +44,43 @@ QString ContactManager::repoNameForContact(const QString &remoteUsername)
     return QStringLiteral("chat-with-") + remoteUsername.toLower();
 }
 
-// ── Persistence ───────────────────────────────────────────────────────────────
-
-void ContactManager::saveContacts()
+QString ContactManager::remoteRepoPathForContact(const QString &contactUsername,
+                                                   const QString &localUsername)
 {
-    QSettings settings;
-    QJsonArray arr;
-    for (const Contact &c : std::as_const(m_contacts))
-        arr.append(c.toJson());
-    settings.setValue(QStringLiteral("contacts"),
-                      QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    return contactUsername.toLower() + QLatin1String("/chat-with-") + localUsername.toLower();
 }
 
-void ContactManager::loadContacts()
+// ── Loading contacts from GitLab ──────────────────────────────────────────────
+
+void ContactManager::loadContactsFromGitLab(const QString &currentUser,
+                                             std::function<void()>        onDone,
+                                             std::function<void(QString)> onErr)
 {
-    QSettings settings;
-    QByteArray raw = settings.value(QStringLiteral("contacts")).toByteArray();
-    if (raw.isEmpty())
-        return;
-    auto doc = QJsonDocument::fromJson(raw);
-    if (!doc.isArray())
-        return;
-    m_contacts.clear();
-    for (const QJsonValue &v : doc.array())
-        m_contacts.append(Contact::fromJson(v.toObject()));
-    emit contactsChanged();
+    m_client->listProjects(QStringLiteral("chat-with-"),
+        [this, currentUser, onDone](QJsonArray projects) {
+            m_contacts.clear();
+            const QString prefix = QStringLiteral("chat-with-");
+            for (const QJsonValue &v : projects) {
+                QJsonObject proj = v.toObject();
+                const QString name = proj.value(QStringLiteral("name")).toString();
+                if (!name.startsWith(prefix))
+                    continue;
+                const QString remoteUsername = name.mid(prefix.length());
+                if (remoteUsername.isEmpty())
+                    continue;
+
+                Contact c;
+                c.username      = remoteUsername;
+                c.localRepoId   = proj.value(QStringLiteral("id")).toInt();
+                c.localRepoPath = proj.value(QStringLiteral("path_with_namespace")).toString();
+                c.remoteRepoUrl = m_client->serverUrl() + QLatin1Char('/') +
+                                  remoteRepoPathForContact(remoteUsername, currentUser);
+                m_contacts.append(c);
+            }
+            emit contactsChanged();
+            onDone();
+        },
+        onErr);
 }
 
 // ── addContact flow ───────────────────────────────────────────────────────────
@@ -121,7 +132,7 @@ void ContactManager::addContact(const QString &remoteUsername,
                                 [this, partial, onOk]() mutable
                                 {
                                     m_contacts.append(partial);
-                                    saveContacts();
+                                    // Contacts are sourced from GitLab; no local persistence needed.
                                     emit contactAdded(partial);
                                     emit contactsChanged();
                                     onOk(partial);
