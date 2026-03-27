@@ -5,7 +5,7 @@ project(Gitcha VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Network Qml QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick Network Qml QuickControls2 Multimedia)
 
 qt_standard_project_setup()
 
@@ -45,6 +45,7 @@ qt_add_qml_module(Gitcha
         qml/SettingsPage.qml
     RESOURCES
         assets/logo.png
+        assets/message_notification.wav
 )
 
 target_link_libraries(Gitcha PRIVATE
@@ -54,6 +55,7 @@ target_link_libraries(Gitcha PRIVATE
     Qt6::Network
     Qt6::Qml
     Qt6::QuickControls2
+    Qt6::Multimedia
 )
 
 target_include_directories(Gitcha PRIVATE src)

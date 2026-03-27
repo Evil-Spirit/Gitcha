@@ -4,6 +4,7 @@
 #include <QQuickStyle>
 #include <QIcon>
 #include <QTimer>
+#include <QSet>
 #include <algorithm>
 
 #include "gitlabclient.h"
@@ -77,6 +78,9 @@ public:
     void setActiveChatIndex(int idx) {
         if (m_activeChatIndex == idx) return;
         m_activeChatIndex = idx;
+        // Reset new-message tracking whenever the active chat changes.
+        m_knownMessageIds.clear();
+        m_initialLoadComplete = false;
         emit activeChatIndexChanged();
         if (idx >= 0) {
             refreshMessages();
@@ -251,6 +255,8 @@ signals:
     void sendingChanged();
     void loadingChanged();
     void statusMessageChanged();
+    /** Emitted during a background poll when new messages from the contact arrive. */
+    void newMessageReceived(const QString &sender, const QString &preview);
 
 private:
     // ── Refresh implementation ────────────────────────────────────────────────
@@ -271,7 +277,34 @@ private:
         // Helper: combine, deduplicate and sort the two message lists, then
         // push to the model and clear the loading state.
         auto finalize = [this, silent](QList<Message> mine, QList<Message> theirs) {
-            m_messageModel->setMessages(mergeMessages(mine, theirs));
+            QList<Message> merged = mergeMessages(mine, theirs);
+
+            // Detect new incoming messages on background polls (after the
+            // initial load) and emit a notification signal for each new sender.
+            if (silent && m_initialLoadComplete) {
+                QString notifySender;
+                QString notifyPreview;
+                // Iterate in reverse: new messages appear at the end of the
+                // chronologically-sorted list, so this finds them quickly.
+                for (int i = merged.size() - 1; i >= 0; --i) {
+                    const Message &msg = merged.at(i);
+                    if (m_knownMessageIds.contains(msg.id))
+                        break; // reached already-known messages
+                    if (!msg.isMine) {
+                        notifySender  = msg.sender;
+                        notifyPreview = msg.text.left(80);
+                    }
+                }
+                if (!notifySender.isEmpty())
+                    emit newMessageReceived(notifySender, notifyPreview);
+            }
+
+            // Incrementally add any new message IDs (avoids full rebuild).
+            for (const Message &msg : merged)
+                m_knownMessageIds.insert(msg.id);
+            m_initialLoadComplete = true;
+
+            m_messageModel->setMessages(merged);
             if (!silent) {
                 setLoading(false);
                 setStatus({});
@@ -358,6 +391,10 @@ private:
     bool    m_sending{false};
     bool    m_loading{false};
     QString m_statusMessage;
+
+    // New-message notification tracking
+    QSet<QString> m_knownMessageIds;
+    bool          m_initialLoadComplete{false};
 };
 
 #include "main.moc"
