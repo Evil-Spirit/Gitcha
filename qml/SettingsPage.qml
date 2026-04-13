@@ -7,7 +7,7 @@ Page {
     title: "Settings"
 
     header: ToolBar {
-        Material.background: Material.Teal
+        Material.background: Material.DeepPurple
         RowLayout {
             anchors.fill: parent
 
@@ -61,7 +61,7 @@ Page {
                     spacing: 8
 
                     RowLayout {
-                        Label { text: "Logged in as:"; color: "#757575"; font.pixelSize: 13 }
+                        Label { text: "Logged in as:"; color: "#B39DDB"; font.pixelSize: 13 }
                         Label {
                             text: app.currentUser || "(not logged in)"
                             font.bold: true
@@ -71,7 +71,7 @@ Page {
                     }
 
                     RowLayout {
-                        Label { text: "Server:"; color: "#757575"; font.pixelSize: 13 }
+                        Label { text: "Server:"; color: "#B39DDB"; font.pixelSize: 13 }
                         Label {
                             text: settings.serverUrl
                             font.pixelSize: 13
@@ -124,13 +124,13 @@ Page {
                               "server software required."
                         font.pixelSize: 12
                         wrapMode: Text.Wrap
-                        color: "#555"
+                        color: "#B39DDB"
                         Layout.fillWidth: true
                     }
                     Label {
                         text: "Built with Qt 6 / QML"
                         font.pixelSize: 11
-                        color: "#9e9e9e"
+                        color: "#9575CD"
                     }
                 }
             }

@@ -11,7 +11,7 @@ Page {
 
     // ── Toolbar ───────────────────────────────────────────────────────────────
     header: ToolBar {
-        Material.background: Material.Teal
+        Material.background: Material.DeepPurple
         RowLayout {
             anchors.fill: parent
 
@@ -106,8 +106,8 @@ Page {
                 width: Math.min(msgText.implicitWidth + 24, msgList.width * 0.75)
                 implicitHeight: msgText.implicitHeight + 16
                 radius: 12
-                color: isMine ? "#dcf8c6" : "white"
-                border.color: isMine ? "#b2d89a" : "#e0e0e0"
+                color: isMine ? "#3D1A6E" : "#252030"
+                border.color: isMine ? "#7C3AED" : "#4B4468"
                 border.width: 1
 
                 x: isMine ? parent.width - width - 8 : 8
@@ -144,7 +144,7 @@ Page {
                     Label {
                         text: timestamp
                         font.pixelSize: 10
-                        color: "#9e9e9e"
+                        color: "#9575CD"
                         Layout.alignment: Qt.AlignRight
                     }
                 }
@@ -159,7 +159,7 @@ Page {
             visible: messageModel.count === 0 && !app.loading
             text: "No messages yet.\nSay hello! 👋"
             horizontalAlignment: Text.AlignHCenter
-            color: "#9e9e9e"
+            color: "#9575CD"
             font.pixelSize: 14
         }
     }
@@ -205,7 +205,7 @@ Page {
                 id: sendBtn
                 text: app.sending ? "…" : "Send"
                 enabled: !app.sending && msgInput.text.trim().length > 0
-                Material.background: Material.Teal
+                Material.background: Material.DeepPurple
                 Material.foreground: "white"
                 onClicked: {
                     const txt = msgInput.text.trim()
@@ -240,7 +240,7 @@ Page {
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
                 font.pixelSize: 13
-                color: "#555"
+                color: "#B39DDB"
             }
             TextArea {
                 id: repoUrlArea
@@ -258,7 +258,7 @@ Page {
                     repoUrlArea.copy()
                     repoUrlPopup.close()
                 }
-                Material.background: Material.Teal
+                Material.background: Material.DeepPurple
                 Material.foreground: "white"
             }
         }

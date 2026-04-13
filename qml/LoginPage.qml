@@ -9,7 +9,7 @@ Page {
     // ── Background ────────────────────────────────────────────────────────────
     Rectangle {
         anchors.fill: parent
-        color: "#f5f5f5"
+        color: "#1A1625"
     }
 
     // ── Auto-fill from saved settings ─────────────────────────────────────────
@@ -54,7 +54,7 @@ Page {
             Label {
                 text: "Git-backed secure messaging"
                 font.pixelSize: 14
-                color: "#757575"
+                color: "#B39DDB"
                 Layout.alignment: Qt.AlignHCenter
             }
 
@@ -71,7 +71,7 @@ Page {
                     anchors.fill: parent
                     spacing: 12
 
-                    Label { text: "GitLab Server URL"; font.pixelSize: 12; color: "#757575" }
+                    Label { text: "GitLab Server URL"; font.pixelSize: 12; color: "#B39DDB" }
                     TextField {
                         id: serverField
                         Layout.fillWidth: true
@@ -80,7 +80,7 @@ Page {
                         text: "https://gitlab.com"
                     }
 
-                    Label { text: "Personal Access Token"; font.pixelSize: 12; color: "#757575" }
+                    Label { text: "Personal Access Token"; font.pixelSize: 12; color: "#B39DDB" }
                     TextField {
                         id: tokenField
                         Layout.fillWidth: true
@@ -103,7 +103,7 @@ Page {
                         enabled: !app.loading && serverField.text.length > 0 &&
                                  tokenField.text.length > 0
                         Layout.fillWidth: true
-                        Material.background: Material.Teal
+                        Material.background: Material.DeepPurple
                         Material.foreground: "white"
                         onClicked: {
                             app.login(serverField.text.trim(),
@@ -121,7 +121,7 @@ Page {
                 text: "Create a GitLab Personal Access Token with <b>api</b> scope at:\n" +
                       serverField.text + "/-/profile/personal_access_tokens"
                 font.pixelSize: 11
-                color: "#9e9e9e"
+                color: "#9575CD"
                 wrapMode: Text.Wrap
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter

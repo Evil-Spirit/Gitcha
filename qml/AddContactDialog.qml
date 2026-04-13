@@ -30,7 +30,7 @@ Dialog {
         Label {
             text: "Remote user's GitLab username:"
             font.pixelSize: 12
-            color: "#757575"
+            color: "#B39DDB"
         }
         TextField {
             id: usernameField
@@ -44,7 +44,7 @@ Dialog {
             wrapMode: Text.Wrap
             Layout.fillWidth: true
             font.pixelSize: 11
-            color: "#9e9e9e"
+            color: "#9575CD"
         }
     }
 }
